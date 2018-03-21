@@ -1,0 +1,15 @@
+{
+  "name": "exoframe-recipe-hobbit",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "Tim Ermilov <yamalight@gmail.com> (http://codezen.net)",
+  "license": "MIT",
+  "dependencies": {
+    "tar-fs": "^1.16.0"
+  }
+}
