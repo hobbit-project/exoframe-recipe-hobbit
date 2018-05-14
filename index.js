@@ -13,6 +13,7 @@ const storageServiceImage = 'git.project-hobbit.eu:4567/gitadmin/platform-storag
 
 // volumes
 const keycloakVolumeName = 'hobbit-keycloak-config';
+const virtuosoVolumeName = 'hobbit-virtuoso-config';
 
 // networks
 const hobbitNetwork = 'hobbit';
@@ -132,6 +133,69 @@ const prepareKeycloakConfig = async ({util, docker, answers, username, serverCon
   util.logger.debug('after sleep:', fillerInspect);
 };
 
+const prepareVirtuosoConfig = async ({util, docker, answers, username, serverConfig, volume}) => {
+  // build image that copies our virtuoso config to that volume
+  const logLine = data => util.logger.debug('BUILD-LOG:', data);
+  const tag = 'hobbit-virtuoso-volume-filler';
+  const tarStream = tar.pack(path.join(__dirname, 'virtuoso'));
+  const {log: buildLog, image: virtuosoFillImage} = await docker.buildFromParams({tarStream, tag, logLine});
+  util.logger.debug('Built volume fill image:', virtuosoFillImage, buildLog);
+
+  // generate deployment name
+  const deploymentName = util.nameFromImage(virtuosoFillImage);
+
+  // start that image with volume to copy data
+  let fillerInspect = await docker.startFromParams({
+    image: virtuosoFillImage,
+    projectName: answers.projectName,
+    username,
+    deploymentName,
+    hostname: deploymentName,
+    restartPolicy: 'no',
+    Mounts: [
+      {
+        Type: 'volume',
+        Source: volume.name,
+        Target: '/cfg-volume',
+      },
+    ],
+  });
+  util.logger.debug('started filler:', fillerInspect);
+
+  let isExited = false;
+
+  if (serverConfig.swarm) {
+    do {
+      await sleep(3000);
+      const tasks = await docker.daemon.listTasks({filters: `{"service": ["${fillerInspect.Spec.Name}"]}`});
+      const task = tasks.pop();
+      util.logger.debug('got task:', task);
+      isExited = task.Status.State === 'complete';
+      if (isExited && task.Status.Message !== 'finished') {
+        throw new Error(`Error creating config volume for keycloak: ${fillerInspect.Status.Message}`);
+      }
+    } while (!isExited);
+
+    return;
+  }
+
+  do {
+    // wait for 3s to give it time to copy config
+    await sleep(3000);
+    fillerInspect = await docker.daemon.getContainer(fillerInspect.Id).inspect();
+    isExited = fillerInspect.State.Status === 'exited';
+    if (isExited && fillerInspect.State.ExitCode !== 0) {
+      throw new Error(
+        `Error creating config volume for keycloak: ${fillerInspect.State.Error} (code: ${
+          fillerInspect.State.ExitCode
+        })`
+      );
+    }
+  } while (!isExited);
+
+  util.logger.debug('after sleep:', fillerInspect);
+};
+
 exports.runSetup = async ({answers, serverConfig, username, docker, util}) => {
   // init log
   const log = [];
@@ -151,6 +215,13 @@ exports.runSetup = async ({answers, serverConfig, username, docker, util}) => {
     // fill volume with config
     await prepareKeycloakConfig({util, docker, serverConfig, answers, username, volume: keycloakVolume});
     util.logger.debug('HOBBIT Keycloak config volume created');
+
+    // create new volume for virtuoso config
+    const virtuosoVolume = await docker.daemon.createVolume({Name: virtuosoVolumeName});
+    util.logger.debug(virtuosoVolume);
+    // fill volume with config
+    await prepareVirtuosoConfig({util, docker, serverConfig, answers, username, volume: virtuosoVolume});
+    util.logger.debug('HOBBIT Virtuoso config volume created');
   } catch (e) {
     util.logger.error('error:', e);
     log.push({message: e.toString(), data: e, level: 'error'});
