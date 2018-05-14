@@ -216,6 +216,29 @@ exports.runSetup = async ({answers, serverConfig, username, docker, util}) => {
     await prepareKeycloakConfig({util, docker, serverConfig, answers, username, volume: keycloakVolume});
     util.logger.debug('HOBBIT Keycloak config volume created');
 
+    // generate deployment name
+    const keycloakDeploymentName = util.nameFromImage(keycloakImage);
+    util.logger.debug('Keycloak name:', keycloakDeploymentName);
+    // start keycloak
+    await docker.startFromParams({
+      image: keycloakImage,
+      projectName: answers.projectName,
+      username,
+      deploymentName: keycloakDeploymentName,
+      frontend: `Host:${answers.keycloakHost}`,
+      restartPolicy: 'on-failure:2',
+      additionalLabels: {
+        'traefik.port': '8080',
+      },
+      Mounts: [
+        {
+          Type: 'volume',
+          Source: keycloakVolume.name,
+          Target: '/opt/jboss/keycloak/standalone/data/db',
+        },
+      ],
+    });
+
     // create new volume for virtuoso config
     const virtuosoVolume = await docker.daemon.createVolume({Name: virtuosoVolumeName});
     util.logger.debug(virtuosoVolume);

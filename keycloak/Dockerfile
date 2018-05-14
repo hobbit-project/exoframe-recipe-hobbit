@@ -6,4 +6,4 @@ RUN mkdir -p /config
 ADD keycloak.h2.db /config/keycloak.h2.db
 
 # upon execution - copy config to volume
-CMD [ "cp", "/config/keycloak.h2.db", "/cfg-volume/keycloak.h2.db" ]
+CMD cp /config/keycloak.h2.db /cfg-volume/keycloak.h2.db; chmod 777 /cfg-volume; chmod 666 /cfg-volume/keycloak.h2.db
