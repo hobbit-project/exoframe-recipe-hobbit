@@ -216,15 +216,11 @@ exports.runSetup = async ({answers, serverConfig, username, docker, util}) => {
     await prepareKeycloakConfig({util, docker, serverConfig, answers, username, volume: keycloakVolume});
     util.logger.debug('HOBBIT Keycloak config volume created');
 
-    // generate deployment name
-    const keycloakDeploymentName = util.nameFromImage(keycloakImage);
-    util.logger.debug('Keycloak name:', keycloakDeploymentName);
     // start keycloak
-    await docker.startFromParams({
+    const keycloakService = await docker.startFromParams({
       image: keycloakImage,
       projectName: answers.projectName,
       username,
-      deploymentName: keycloakDeploymentName,
       frontend: `Host:${answers.keycloakHost}`,
       restartPolicy: 'on-failure:2',
       additionalLabels: {
@@ -237,7 +233,9 @@ exports.runSetup = async ({answers, serverConfig, username, docker, util}) => {
           Target: '/opt/jboss/keycloak/standalone/data/db',
         },
       ],
+      additionalNetworks: [hobbitNetwork],
     });
+    util.logger.debug('Keycloak started:', keycloakService);
 
     // create new volume for virtuoso config
     const virtuosoVolume = await docker.daemon.createVolume({Name: virtuosoVolumeName});
@@ -245,6 +243,27 @@ exports.runSetup = async ({answers, serverConfig, username, docker, util}) => {
     // fill volume with config
     await prepareVirtuosoConfig({util, docker, serverConfig, answers, username, volume: virtuosoVolume});
     util.logger.debug('HOBBIT Virtuoso config volume created');
+
+    // start virtuoso
+    const virtuosoService = await docker.startFromParams({
+      image: vosImage,
+      projectName: answers.projectName,
+      username,
+      frontend: `Host:${answers.virtuosoHost}`,
+      restartPolicy: 'on-failure:2',
+      additionalLabels: {
+        'traefik.port': '8890',
+      },
+      Mounts: [
+        {
+          Type: 'volume',
+          Source: virtuosoVolume.name,
+          Target: '/opt/virtuoso-opensource/database',
+        },
+      ],
+      additionalNetworks: [hobbitCoreNetwork],
+    });
+    util.logger.debug('Virtuoso started:', virtuosoService);
   } catch (e) {
     util.logger.error('error:', e);
     log.push({message: e.toString(), data: e, level: 'error'});
